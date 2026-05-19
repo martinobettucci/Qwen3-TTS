@@ -26,12 +26,8 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoConfig, AutoFeatureExtractor, AutoModel
 
-from ..core import (
-    Qwen3TTSTokenizerV1Config,
-    Qwen3TTSTokenizerV1Model,
-    Qwen3TTSTokenizerV2Config,
-    Qwen3TTSTokenizerV2Model,
-)
+from ..core.tokenizer_12hz.configuration_qwen3_tts_tokenizer_v2 import Qwen3TTSTokenizerV2Config
+from ..core.tokenizer_12hz.modeling_qwen3_tts_tokenizer_v2 import Qwen3TTSTokenizerV2Model
 
 AudioInput = Union[
     str,  # wav path, or base64 string
@@ -39,6 +35,23 @@ AudioInput = Union[
     List[str],
     List[np.ndarray],
 ]
+
+
+def _register_25hz_tokenizer() -> None:
+    try:
+        from ..core.tokenizer_25hz.configuration_qwen3_tts_tokenizer_v1 import Qwen3TTSTokenizerV1Config
+        from ..core.tokenizer_25hz.modeling_qwen3_tts_tokenizer_v1 import Qwen3TTSTokenizerV1Model
+    except ModuleNotFoundError as exc:
+        if exc.name == "sox":
+            raise RuntimeError(
+                "Qwen3-TTS 25Hz tokenizers require the optional Python package 'sox'. "
+                "The local project environment intentionally does not install it; use a 12Hz model "
+                "or install the optional 25Hz dependency in a separate environment."
+            ) from exc
+        raise
+
+    AutoConfig.register("qwen3_tts_tokenizer_25hz", Qwen3TTSTokenizerV1Config)
+    AutoModel.register(Qwen3TTSTokenizerV1Config, Qwen3TTSTokenizerV1Model)
 
 
 class Qwen3TTSTokenizer:
@@ -78,11 +91,12 @@ class Qwen3TTSTokenizer:
         """
         inst = cls()
 
-        AutoConfig.register("qwen3_tts_tokenizer_25hz", Qwen3TTSTokenizerV1Config)
-        AutoModel.register(Qwen3TTSTokenizerV1Config, Qwen3TTSTokenizerV1Model)
-
         AutoConfig.register("qwen3_tts_tokenizer_12hz", Qwen3TTSTokenizerV2Config)
         AutoModel.register(Qwen3TTSTokenizerV2Config, Qwen3TTSTokenizerV2Model)
+
+        config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
+        if getattr(config, "model_type", None) == "qwen3_tts_tokenizer_25hz":
+            _register_25hz_tokenizer()
 
         inst.feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path)
         inst.model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
